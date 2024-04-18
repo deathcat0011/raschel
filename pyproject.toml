@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+dynamic = ["version"]
+name = "tom-backup"
+requires-python = ">= 3.10"
+description = "Backup client"
+authors = [{ name = "thoraxe" }]
+
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["build"]
+
+[project.gui-scripts]
