@@ -57,7 +57,7 @@ def diff_file(file1, file2) -> bytearray:
 
 
 def run_backup(config: config.Config):
-
+    pass
 
 def main():
     conf = config.load_config()  # type: ignore
