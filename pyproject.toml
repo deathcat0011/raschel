@@ -9,9 +9,7 @@ requires-python = ">= 3.10"
 description = "Backup client"
 authors = [{ name = "thoraxe" }]
 
-dependencies = []
+dependencies = ["jsonpickle", "itertools"]
 
 [project.optional-dependencies]
-dev = ["build"]
-
-[project.gui-scripts]
+dev = ["build", "black", "ruff"]
