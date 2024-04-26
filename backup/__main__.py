@@ -1,14 +1,17 @@
 import fnmatch  # to translate our exclusion lists and filters to glob strings
 import hashlib
+from io import TextIOWrapper
 import logging
 import os
 import re as re
 import zipfile as zip
 from glob import glob, iglob
 from os import PathLike, path
-from typing import Dict, Iterator, List
+from typing import Any, Dict, Generator, Iterator, List
+from diff_match_patch import diff_match_patch
 
-import config
+
+import backup.config as config
 
 log = logging.getLogger(__name__)
 logging.basicConfig(
@@ -52,8 +55,56 @@ def get_file_hash(filename: str):
         return hash.hexdigest()
 
 
-def diff_file(file1, file2) -> bytearray:
-    pass
+def _read_lazy_chunks(
+    file_object: TextIOWrapper, chunk_size: int = 1024
+) -> Generator[str, Any, None]:
+    """Lazy function (generator) to read a file piece by piece.
+    Default chunk size: 1k."""
+    while True:
+        data = file_object.read(chunk_size)
+        if not data:
+            break
+        yield data
+
+
+def _read_lazy_lines(
+    file_object: TextIOWrapper, chunk_size: int = 1024
+) -> Generator[str, Any, None]:
+    """Lazy function (generator) to read a file piece by piece.
+    Default chunk size: 1k."""
+    while True:
+        data = file_object.readline()
+        if not data:
+            break
+        yield data
+
+
+def diff_text_file(
+    file_path1: PathLike[str], file_path2: PathLike[str]
+) -> Iterator[str] | None:
+    with open(file_path1, "r") as file1:
+        with open(file_path2, "r") as file2:
+            file1_gen = file1.read()  # _read_in_chunks(file1, 4096)
+            file2_gen = file2.read()  # _read_in_chunks(file2, 4096)
+            dmp = diff_match_patch()
+            patches = dmp.patch_make(file1_gen, file2_gen)
+            return dmp.patch_toText(patches)
+            # return difflib.unified_diff(file1_gen, file2_gen, file_path1, file_path2) # type: ignore
+
+
+def apply_patch(
+    file_path: PathLike[str],
+    patch_path: PathLike[str],
+):
+    with open(file_path, "r+") as file:
+        with open(patch_path, "r") as patch:
+            dmp = diff_match_patch()
+            text = file.read()
+            patch_text = patch.read()
+            patches = dmp.patch_fromText(patch_text)
+            patch_text, _ = dmp.patch_apply(patches, text)
+            file.seek(0)
+            file.write(patch_text)
 
 
 def run_backup(paths_to_backup: PathLike[str], target_path: PathLike[str]):
@@ -106,10 +157,10 @@ def run_backup(paths_to_backup: PathLike[str], target_path: PathLike[str]):
 def main():
     conf = config.load_config()  # type: ignore
 
-    path = "./**"
-    exclusion = ["*main*"]
+    # path = "./**"
+    # exclusion = ["*main*"]
 
-    run_backup(["D:/Coderepo/py-toms-back/backup"], "./backup_test")
+    # run_backup(["D:/Coderepo/py-toms-back/backup"], "./backup_test")
 
     # print("Exclusions: ", end=None)
     # for e in exclusion:
