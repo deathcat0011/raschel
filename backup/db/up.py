@@ -1,5 +1,5 @@
 from peewee import *
-from playhouse.migrate import migrate, SqliteMigrator
+from peewee.playhouse.migrate import migrate, SqliteMigrator
 
 from backup.config import Config
 
