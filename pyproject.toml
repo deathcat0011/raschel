@@ -7,9 +7,11 @@ dynamic = ["version"]
 name = "tom-backup"
 requires-python = ">= 3.10"
 description = "Backup client"
-authors = [{ name = "thoraxe" }]
+authors = [{ name = "thoraxe"},]
+dependencies = ["jsonpickle==3.0.4", "peewee[playhouse]==3.17.3", "diff-match-patch==20230430"]
 
-dependencies = ["jsonpickle", "itertools", "sqlite3", "peewee"]
+[project.urls]
+Repository = "https://github.com/deathcat0011/py-toms-back.git"
 
 [project.optional-dependencies]
-dev = ["build", "black", "ruff"]
+dev = ["build==1.2.1", "black==24.4.0", "ruff==0.3.7"]
