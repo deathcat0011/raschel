@@ -1,3 +1,5 @@
+from os import PathLike
+from typing import Iterator
 from diff_match_patch import diff_match_patch
 
 def diff_text_file(

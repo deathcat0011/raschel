@@ -1,10 +1,11 @@
+import datetime
 import fnmatch  # to translate our exclusion lists and filters to glob strings
 import logging
 import os
 import re as re
 import zipfile as zip
 from os import PathLike, path
-from typing import Iterator
+from typing import Iterator, Optional
 
 import backup.config as config
 
@@ -16,60 +17,65 @@ logging.basicConfig(
 )
 
 
-def run_backup(paths_to_backup: PathLike[str], target_path: PathLike[str]):
+def to_zip_path(p: str) -> Optional[str]:
+    """
+    We want to keep the path information of a file tied to its location in the original file system, so we have to remove the drive letters. returns None if the path was invalid
+    """
+    if path.isabs(p):
+        (drive, p) = path.splitdrive(p)
+        drive: setattr = drive.replace(':','').lower()
+        if not drive:
+            return None
+        # now join the lower case drive letter with the rest of the path
+        return path.normpath(f"{drive}/{p}")
+    return p
 
-    # paths_to_backup: [PathLike[str]] = None
-    # target_dir: PathLike[str] = None
-    # calculate diffs to last backup?
-    # skip for now
 
-    # collect files into archive
-    target_parent_dir = path.abspath(path.dirname(target_path))
-    if not path.exists(target_path):
-        try:
-            os.makedirs(target_path)
-        except OSError as e:
-            log.error(f"Could not create target dir: {e}")
-            raise e
-    # if path.exists(target_path):
-    #     log.error(f"Backup file already exists in {target_path}")
-    #     raise FileExistsError(f"Backup file already exists in {target_path}")
+def run_backup(paths_to_backup: PathLike[str], target_dir: PathLike[str]):
 
-    # now recursively go through the paths
-    for dir in paths_to_backup:
-        print(dir)
-        # !Bug dir could be absolute path (with drive letters, this would make join return only dir instead of target_path + dir, trying to overwrite the path we want to backup)
-        if path.isabs(dir):
-            (drive, part) = path.splitdrive(dir)
-            drive = (drive[:-1]).lower()
-            archive_dir = path.normpath(path.join(drive, part[1:]))
-        else:
-            archive_dir = dir
-        dir = path.abspath(path.join(target_path, dir))
-        dir += ".zip"
-        with zip.ZipFile(
-            dir,
-            "a",
-            compression=zip.ZIP_DEFLATED,
-            compresslevel=9,
-        ) as zipfile:
-            for _, _, files in os.walk(dir):
-                log.info("{}")
-                zipfile.write(
-                    files,
-                    path.dirname(archive_path),
-                    # compress_type=zip.ZIP_DEFLATED,
-                    # compresslevel=9,
-                )
-
+    os.makedirs(target_dir, exist_ok=True)
+    failed = False
+    failed_list = []
+    time = datetime.datetime.now().isoformat('_','seconds').replace("-","_").replace(':','_')
+    with zip.ZipFile(
+        f"{target_dir}/backup_{time}.zip",
+        "a",
+        compression=zip.ZIP_DEFLATED,
+        compresslevel=9,
+    ) as zipfile:
+        # now recursively go through the paths
+        for dir in paths_to_backup:
+            for file_dir, _, files in os.walk(path.abspath(dir), ):
+                if (archive_dir := to_zip_path(file_dir)) is None:
+                    log.error(f"Invalid path '{dir}'")
+                    continue
+                for file in files:
+                    log.info(f"{file}")
+                    filename = path.join(file_dir, file)
+                    arcname =path.join(archive_dir, file)
+                    try:
+                        zipfile.write(
+                            filename,
+                            arcname,
+                            compress_type=zip.ZIP_DEFLATED,
+                            compresslevel=9,
+                        )
+                    except Exception as e:
+                        failed = True
+                        failed_list.append((filename, arcname))
+                        log.error(e)
+    if failed:
+        log.error("Backup unsuccesful!")
+        for (f,t) in failed_list:
+            log.error(f"Could not write '{f}' to '{t}'")
 
 def main():
     conf = config.load_config()  # type: ignore
 
-    # path = "./**"
+    path = "./test/**"
     # exclusion = ["*main*"]
 
-    # run_backup(["D:/Coderepo/py-toms-back/backup"], "./backup_test")
+    run_backup(["./conda/"], "./backup_test")
 
     # print("Exclusions: ", end=None)
     # for e in exclusion:
