@@ -4,11 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 dynamic = ["version"]
-name = "tom-backup"
+name = "raschel"
 requires-python = ">= 3.10"
 description = "Backup client"
-authors = [{ name = "thoraxe"},]
-dependencies = ["jsonpickle==3.0.4", "peewee[playhouse]==3.17.3", "diff-match-patch==20230430"]
+authors = [{ name = "thoraxe" }]
+dependencies = [
+    "jsonpickle==3.0.4",
+    "peewee[playhouse]==3.17.3",
+    "diff-match-patch==20230430",
+]
 
 [project.urls]
 Repository = "https://github.com/deathcat0011/py-toms-back.git"
