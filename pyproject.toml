@@ -19,3 +19,6 @@ Repository = "https://github.com/deathcat0011/py-toms-back.git"
 
 [project.optional-dependencies]
 dev = ["build==1.2.1", "black==24.4.0", "ruff==0.3.7"]
+
+[tool.setuptools]
+py-modules = ["raschel"]
