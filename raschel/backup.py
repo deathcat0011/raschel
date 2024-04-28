@@ -1,3 +1,4 @@
+from codecs import utf_8_decode
 import datetime
 import json
 import logging as log
@@ -78,3 +79,33 @@ def run_backup(paths_to_backup: list[PathLike[str]], target_dir: PathLike[str]):
         log.error("Backup unsuccesful!")
         for f, t in failed_list:
             log.error(f"Could not write '{f}' to '{t}'")
+
+
+def compare_with_backup(backup_path: PathLike[str], dir_path: PathLike[str]):
+    backup_files: list[dict[str, Any]] = []
+    original_files: list[str] = []
+    with zip.ZipFile(backup_path) as file:
+        data = file.read(
+            "meta.info",
+        )
+        data, _ = utf_8_decode(data)
+        meta: dict[Any, Any] = json.loads(data)
+        # print(meta)
+        for _, value in meta.items():
+            for v in value:
+                backup_files.extend([{"original_path": k, **v} for k, v in v.items()])
+        # print(backup_files)
+
+        for file_dir, _, files in os.walk(
+            path.abspath(dir_path),
+        ):
+            for file in files:
+                original_files.append(path.abspath(path.join(file_dir, file)))
+
+    for d in backup_files:
+        if (file := d["original_path"]) in original_files:
+            if d["hash"] == (hash := file_util.get_file_hash(file)):
+                print(f"'{file}' unchanged {hash}")
+            else:
+                print(f"'{file}' has changed")
+                
