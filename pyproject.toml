@@ -18,7 +18,10 @@ dependencies = [
 Repository = "https://github.com/deathcat0011/py-toms-back.git"
 
 [project.optional-dependencies]
-dev = ["build==1.2.1", "black==24.4.0", "ruff==0.3.7"]
+dev = ["build==1.2.1", "black==24.4.0", "ruff==0.3.7", "pytest==8.2.0"]
 
 [tool.setuptools]
 py-modules = ["raschel"]
+
+[tool.pytest.ini_options]
+pythonpath = ["raschel"]
