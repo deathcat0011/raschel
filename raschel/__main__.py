@@ -33,10 +33,8 @@ def main():
         default="./",
         help="Directory where the backup should be stored",
     )
-    # args = parser.parse_args()
-
-    # backup.run_backup(args.dir, args.target)
-    backup.compare_with_backup("./backup_2024_04_28_13_15_41.zip", "./test")
+    args = parser.parse_args()
+    backup.run_backup(args.dir, args.target)
 
 
 if __name__ == "__main__":

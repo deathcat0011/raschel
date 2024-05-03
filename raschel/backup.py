@@ -25,7 +25,13 @@ def to_zip_path(p: str) -> Optional[str]:
     return p
 
 
-def run_backup(paths_to_backup: list[PathLike[str]], target_dir: PathLike[str]):
+def run_backup(paths_to_backup: list[PathLike[str]], target_dir: PathLike[str]) -> str:
+
+    if not isinstance(paths_to_backup, list):  # type: ignore
+        log.warning(
+            "Input was expected to be a list, put was single string, assuming you meant to only pass one string."
+        )
+        paths_to_backup = [paths_to_backup]
 
     os.makedirs(target_dir, exist_ok=True)
     failed = False
@@ -33,8 +39,9 @@ def run_backup(paths_to_backup: list[PathLike[str]], target_dir: PathLike[str]):
     timestamp = datetime.datetime.now()
     time = timestamp.isoformat("_", "seconds").replace("-", "_").replace(":", "_")
     written: dict[Any, Any] = dict()
+    out_path = f"{target_dir}/backup_{time}.zip"
     with zip.ZipFile(
-        f"{target_dir}/backup_{time}.zip",
+        out_path,
         "a",
         compression=zip.ZIP_DEFLATED,
         compresslevel=9,
@@ -79,12 +86,15 @@ def run_backup(paths_to_backup: list[PathLike[str]], target_dir: PathLike[str]):
         log.error("Backup unsuccesful!")
         for f, t in failed_list:
             log.error(f"Could not write '{f}' to '{t}'")
+    return out_path
 
 
-def compare_with_backup(backup_path: PathLike[str], dir_path: PathLike[str]):
+def compare_with_backup(backup_path: PathLike[str] | str, dir_path: PathLike[str]):
     backup_files: list[dict[str, Any]] = []
     original_files: list[str] = []
-    with zip.ZipFile(backup_path) as file:
+    if not str(backup_path).endswith(".zip"):
+        backup_path += ".zip"  # type: ignore
+    with zip.ZipFile(backup_path) as file:  # type: ignore
         data = file.read(
             "meta.info",
         )
@@ -108,4 +118,3 @@ def compare_with_backup(backup_path: PathLike[str], dir_path: PathLike[str]):
                 print(f"'{file}' unchanged {hash}")
             else:
                 print(f"'{file}' has changed")
-                
