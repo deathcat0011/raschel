@@ -3,15 +3,17 @@ import datetime
 import json
 import logging as log
 import os
+from pathlib import Path
 import re as re
 import zipfile as zip
 from os import PathLike, path
 from typing import Any, Optional
 
 from raschel import file_util
+from raschel.diff import diff_text1
 
 
-def to_zip_path(p: str) -> Optional[str]:
+def to_zip_path(p: str | Path) -> Optional[Path]:
     """
     We want to keep the path information of a file tied to its location in the original file system, so we have to remove the drive letters. returns None if the path was invalid
     """
@@ -21,12 +23,17 @@ def to_zip_path(p: str) -> Optional[str]:
         if not drive:
             return None
         # now join the lower case drive letter with the rest of the path
-        return path.normpath(f"{drive}/{p}")
-    return p
+        return Path(path.normpath(f"{drive}/{p}"))
+    return Path(p)
 
 
-def run_backup(paths_to_backup: list[PathLike[str]], target_dir: PathLike[str]) -> str:
-
+def run_backup(
+    paths_to_backup: list[PathLike[str]], target_dir: PathLike[str]
+) -> str | None:
+    """
+    Returns:
+        The name of the archive zip file or `None` if the backup was unsuccesfull
+    """
     if not isinstance(paths_to_backup, list):  # type: ignore
         log.warning(
             "Input was expected to be a list, put was single string, assuming you meant to only pass one string."
@@ -34,12 +41,14 @@ def run_backup(paths_to_backup: list[PathLike[str]], target_dir: PathLike[str]) 
         paths_to_backup = [paths_to_backup]
 
     os.makedirs(target_dir, exist_ok=True)
+
     failed = False
     failed_list: list[tuple[str, str]] = []
     timestamp = datetime.datetime.now()
     time = timestamp.isoformat("_", "seconds").replace("-", "_").replace(":", "_")
-    written: dict[Any, Any] = dict()
+    meta_file_info: dict[Any, Any] = dict()
     out_path = f"{target_dir}/backup_{time}.zip"
+
     with zip.ZipFile(
         out_path,
         "a",
@@ -54,10 +63,12 @@ def run_backup(paths_to_backup: list[PathLike[str]], target_dir: PathLike[str]) 
                 if (archive_dir := to_zip_path(file_dir)) is None:
                     log.error(f"Invalid path '{dir}'")
                     continue
+                archive_dir = archive_dir.as_posix()
                 for file in files:
                     log.info(f"{file}")
-                    filename = path.join(file_dir, file)
-                    arcname = path.join(archive_dir, file)
+
+                    filename = (Path(file_dir) / file).as_posix()
+                    arcname = (Path(archive_dir) / file).as_posix()
                     try:
                         zipfile.write(
                             filename,
@@ -72,16 +83,20 @@ def run_backup(paths_to_backup: list[PathLike[str]], target_dir: PathLike[str]) 
                                 "timestamp": timestamp.isoformat(),
                             }
                         }
-                        key = path.normpath(dir)
-                        if key in written.keys():
-                            written[key].append(value)  # type: ignore
+                        key = Path(dir).as_posix()
+                        if key in meta_file_info.keys():
+                            meta_file_info[key].append(value)  # type: ignore
                         else:
-                            written[key] = [value]
+                            meta_file_info[key] = [value]
                     except Exception as e:
                         failed = True
                         failed_list.append((filename, arcname))
                         log.error(e)
-        zipfile.writestr("meta.info", json.dumps(written, indent=4))
+        """
+            also store that we are making a full backup
+        """
+        meta_info = {"diff_backup": False, "files": meta_file_info}
+        zipfile.writestr("meta.info", json.dumps(meta_info, indent=4))
     if failed:
         log.error("Backup unsuccesful!")
         for f, t in failed_list:
@@ -89,32 +104,42 @@ def run_backup(paths_to_backup: list[PathLike[str]], target_dir: PathLike[str]) 
     return out_path
 
 
-def compare_with_backup(backup_path: PathLike[str] | str, dir_path: PathLike[str]):
+def compare_backups(
+    backup_path: PathLike[str] | str, dir_path: PathLike[str]
+) -> list[tuple[str, str]]:
     backup_files: list[dict[str, Any]] = []
     original_files: list[str] = []
-    if not str(backup_path).endswith(".zip"):
-        backup_path += ".zip"  # type: ignore
-    with zip.ZipFile(backup_path) as file:  # type: ignore
-        data = file.read(
+
+    changed_paths: list[tuple[str, str]] = []
+
+    if not zip.is_zipfile(backup_path):
+        log.error(f"Expected '{backup_path}' to be a '.zip' file.")
+        raise ValueError(f"Expected '{backup_path}' to be a '.zip' file.")
+
+    with zip.ZipFile(backup_path) as zipfile:  # type: ignore
+        data = zipfile.read(
             "meta.info",
         )
         data, _ = utf_8_decode(data)
         meta: dict[Any, Any] = json.loads(data)
-        # print(meta)
-        for _, value in meta.items():
+        """
+        Read the backed up files from the meta file in the archive
+        """
+        for _, value in meta["files"].items():
             for v in value:
                 backup_files.extend([{"original_path": k, **v} for k, v in v.items()])
-        # print(backup_files)
 
         for file_dir, _, files in os.walk(
             path.abspath(dir_path),
         ):
             for file in files:
-                original_files.append(path.abspath(path.join(file_dir, file)))
+                original_files.append((Path(file_dir) / file).as_posix())
 
-    for d in backup_files:
-        if (file := d["original_path"]) in original_files:
-            if d["hash"] == (hash := file_util.get_file_hash(file)):
-                print(f"'{file}' unchanged {hash}")
-            else:
-                print(f"'{file}' has changed")
+        for d in backup_files:
+            if (file := d["original_path"]) in original_files:
+                if not d["hash"] == (file_util.get_file_hash(file)):
+                    contents = zipfile.read(d["archive_name"])
+                    diff = diff_text1(file, contents)
+                    changed_paths.append((file, str(diff)))
+
+    return changed_paths
