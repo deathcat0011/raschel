@@ -7,6 +7,7 @@ import pytest
 
 from .context import raschel  # type: ignore
 from raschel import backup
+from diff_match_patch import diff_match_patch  # type: ignore
 
 
 TEST_DIR = f"{tempfile.mkdtemp(prefix='raschel_')}/"
@@ -14,11 +15,12 @@ TEST_DIR_IN = f"{TEST_DIR}/in"
 TEST_DIR_OUT = f"{TEST_DIR}/out"
 
 
-def generate_text(length: int) -> str:
+def generate_text(length: int, use_extra_symbols: bool = False) -> str:
     alpha = [chr(ord("a") + i) for i in range(26)]
     alpha.extend([chr(ord("A") + i) for i in range(26)])
     alpha.extend([chr(ord("0") + i) for i in range(10)])
-    # alpha.extend(["\n", " ", "\t"])
+    if use_extra_symbols:
+        alpha.extend(["\n", " ", "\t"])
     return "".join([random.choice(alpha) for _ in range(length)])
 
 
@@ -44,5 +46,34 @@ def cleanup(request: pytest.FixtureRequest):
 
 
 def test_backup() -> None:
-    out_path = backup.run_backup([TEST_DIR_IN], TEST_DIR_OUT)  # type: ignore
-    
+    backup.run_backup([TEST_DIR_IN], TEST_DIR_OUT)  # type: ignore
+
+
+def test_diff_backup() -> None:
+    """"""
+
+    """Fixture"""
+    backup_path = backup.run_backup([TEST_DIR_IN], TEST_DIR_OUT)  # type: ignore
+    all_files: list[str] = []
+
+    for file_dir, _, files in os.walk(path.abspath(TEST_DIR_IN)):
+        for selected in files:
+            all_files.append(path.abspath(path.join(file_dir, selected)))
+    selected = random.choice(all_files)
+    text = generate_text(10)
+    with open(selected, "a") as file:
+        file.write(text)
+
+    """Test"""
+
+    diff = backup.compare_backups(
+        backup_path,  # type: ignore
+        TEST_DIR_IN,  # type: ignore
+    )
+
+    """Check"""
+    dmp = diff_match_patch()
+    diff = dmp.patch_fromText(diff[0][1])
+    diff_text, stat = dmp.patch_apply(diff, text)
+    assert len(diff_text) == 0 and stat[0]  # type: ignore
+    pass
