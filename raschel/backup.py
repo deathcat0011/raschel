@@ -38,7 +38,7 @@ class MetaInfo:
         return {
             "diff_backup": self.diff_backup,
             "files": self.files,
-            "id": repr(self.id),
+            "id": str(self.id),
         }
 
     def to_json(self) -> str:
