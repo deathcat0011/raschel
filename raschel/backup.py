@@ -16,10 +16,10 @@ from raschel.diff import diff_text1
 
 class MetaInfo:
     def __init__(
-        self, files: dict[str, list[dict[str, Any]]] = dict(), diff_backup: bool = False
+        self, files: dict[str, list[dict[str, Any]]] = None, diff_backup: bool = False
     ):
         self.diff_backup = diff_backup
-        self.files = files
+        self.files = files or {}
         self.id = uuid.uuid4()
 
     @classmethod
