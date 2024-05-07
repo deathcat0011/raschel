@@ -1,9 +1,12 @@
+import json
 from os import path
 import os
+from pathlib import Path
 import random
 import shutil
 import tempfile
 import pytest
+import zipfile as zip
 
 from .context import raschel  # type: ignore
 from raschel import backup
@@ -45,8 +48,27 @@ def cleanup(request: pytest.FixtureRequest):
         request.addfinalizer(remove_test_dir)
 
 
-def test_backup() -> None:
-    backup.run_backup([TEST_DIR_IN], TEST_DIR_OUT)  # type: ignore
+def test_full_backup() -> None:
+    """"""
+
+    """Fixture"""
+    original_files = []
+    for dir, _, dirs in os.walk(Path(TEST_DIR_IN).as_posix()):
+        if dirs and len(dirs) > 0:
+            original_files.extend([(Path(dir) / file).as_posix() for file in dirs])
+
+    """Test"""
+
+    out = backup.run_backup([TEST_DIR_IN], TEST_DIR_OUT)  # type: ignore
+    backup_files = []
+    with zip.ZipFile(out, "r") as zipfile:
+        meta = backup.MetaInfo.from_dict(json.load(zipfile.open("meta.info")))
+
+        for dirs in meta.files.values():
+            backup_files.extend([dir["filename"]for dir in dirs])
+    assert len(original_files) == len(backup_files)
+    for file in backup_files:
+        assert file in original_files
 
 
 def test_diff_backup() -> None:

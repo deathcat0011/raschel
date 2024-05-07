@@ -5,12 +5,44 @@ import logging as log
 import os
 from pathlib import Path
 import re as re
+import uuid
 import zipfile as zip
 from os import PathLike, path
 from typing import Any, Optional
 
 from raschel import file_util
 from raschel.diff import diff_text1
+
+
+class MetaInfo:
+    def __init__(
+        self, files: dict[str, list[dict[str, Any]]] = dict(), diff_backup: bool = False
+    ):
+        self.diff_backup = diff_backup
+        self.files = files
+        self.id = uuid.uuid4()
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "MetaInfo":
+        if not isinstance(diff_backup := data.get("diff_backup", False), bool):
+            raise ValueError
+        if not isinstance(files := data.get("files", {}), dict):
+            raise ValueError
+
+        ret = cls(files, diff_backup)
+        _id = data.get("id", uuid.uuid4())
+        ret.id = _id
+        return ret
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "diff_backup": self.diff_backup,
+            "files": self.files,
+            "id": repr(self.id),
+        }
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict(), indent=4)
 
 
 def to_zip_path(p: str | Path) -> Optional[Path]:
@@ -46,9 +78,8 @@ def run_backup(
     failed_list: list[tuple[str, str]] = []
     timestamp = datetime.datetime.now()
     time = timestamp.isoformat("_", "seconds").replace("-", "_").replace(":", "_")
-    meta_file_info: dict[Any, Any] = dict()
     out_path = f"{target_dir}/backup_{time}.zip"
-
+    meta_info = MetaInfo()
     with zip.ZipFile(
         out_path,
         "a",
@@ -63,7 +94,6 @@ def run_backup(
                 if (archive_dir := to_zip_path(file_dir)) is None:
                     log.error(f"Invalid path '{dir}'")
                     continue
-                archive_dir = archive_dir.as_posix()
                 for file in files:
                     log.info(f"{file}")
 
@@ -77,17 +107,13 @@ def run_backup(
                             compresslevel=9,
                         )
                         value = {
-                            filename: {
-                                "archive_name": arcname,
-                                "hash": file_util.get_file_hash(filename),
-                                "timestamp": timestamp.isoformat(),
-                            }
+                            "filename": filename,
+                            "archive_name": arcname,
+                            "hash": file_util.get_file_hash(filename),
+                            "timestamp": timestamp.isoformat(),
                         }
-                        key = Path(dir).as_posix()
-                        if key in meta_file_info.keys():
-                            meta_file_info[key].append(value)  # type: ignore
-                        else:
-                            meta_file_info[key] = [value]
+                        key = Path(dir).absolute().as_posix()
+                        meta_info.files.setdefault(key, []).append(value)  # type: ignore
                     except Exception as e:
                         failed = True
                         failed_list.append((filename, arcname))
@@ -95,8 +121,7 @@ def run_backup(
         """
             also store that we are making a full backup
         """
-        meta_info = {"diff_backup": False, "files": meta_file_info}
-        zipfile.writestr("meta.info", json.dumps(meta_info, indent=4))
+        zipfile.writestr("meta.info", meta_info.to_json())
     if failed:
         log.error("Backup unsuccesful!")
         for f, t in failed_list:
@@ -121,13 +146,14 @@ def compare_backups(
             "meta.info",
         )
         data, _ = utf_8_decode(data)
-        meta: dict[Any, Any] = json.loads(data)
+        meta: MetaInfo = MetaInfo.from_dict(json.loads(data))
         """
         Read the backed up files from the meta file in the archive
+
         """
-        for _, value in meta["files"].items():
-            for v in value:
-                backup_files.extend([{"original_path": k, **v} for k, v in v.items()])
+        for _, meta_files in meta.files.items():
+            # for v in meta_files:
+            backup_files.extend(meta_files)
 
         for file_dir, _, files in os.walk(
             path.abspath(dir_path),
@@ -136,7 +162,7 @@ def compare_backups(
                 original_files.append((Path(file_dir) / file).as_posix())
 
         for d in backup_files:
-            if (file := d["original_path"]) in original_files:
+            if (file := d["filename"]) in original_files:
                 if not d["hash"] == (file_util.get_file_hash(file)):
                     contents = zipfile.read(d["archive_name"])
                     diff = diff_text1(file, contents)
