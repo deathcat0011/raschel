@@ -16,7 +16,9 @@ from raschel.diff import diff_text1
 
 class MetaInfo:
     def __init__(
-        self, files: dict[str, list[dict[str, Any]]] | None = None, diff_backup: bool = False
+        self,
+        files: dict[str, list[dict[str, Any]]] | None = None,
+        diff_backup: bool = False,
     ):
         self.diff_backup = diff_backup
         self.files = files or {}
@@ -29,7 +31,7 @@ class MetaInfo:
         if not isinstance(files := data.get("files", {}), dict):
             raise ValueError
 
-        ret = cls(files, diff_backup)
+        ret = cls(files, diff_backup) # type: ignore
         _id = data.get("id", uuid.uuid4())
         ret.id = _id
         return ret
@@ -176,13 +178,14 @@ def compare_backups(
                     contents = archive.read(d["archive_name"])
         changed_paths: list[tuple[str, str]] = []
         for backup_file in backup_files:
-            if (file := backup_file["original_path"]) in original_files:
+            if (file := backup_file["filename"]) in original_files:
                 if not backup_file["hash"] == file_util.get_file_hash(file):
                     contents = archive.read(backup_file["archive_name"])
                     diff = diff_text1(file, contents)
                     changed_paths.append((file, str(diff)))
 
     return changed_paths
+
 
 def do_diff_backup(backup_dir: str, original_dir: str) -> None:
     pass
