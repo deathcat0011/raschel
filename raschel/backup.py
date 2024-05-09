@@ -16,7 +16,7 @@ from raschel.diff import diff_text1
 
 class MetaInfo:
     def __init__(
-        self, files: dict[str, list[dict[str, Any]]] = None, diff_backup: bool = False
+        self, files: dict[str, list[dict[str, Any]]] | None = None, diff_backup: bool = False
     ):
         self.diff_backup = diff_backup
         self.files = files or {}
@@ -130,19 +130,29 @@ def run_backup(
 
 
 def compare_backups(
-    backup_path: PathLike[str] | str, dir_path: PathLike[str]
+    backup_path: PathLike[str], dir_path: PathLike[str]
 ) -> list[tuple[str, str]]:
-    backup_files: list[dict[str, Any]] = []
-    original_files: list[str] = []
+    """
+    Compares backups with original files in a directory.
 
-    changed_paths: list[tuple[str, str]] = []
+    Arguments:
+        `backup_path`-- The path to the backup file, which is expected to be a `.zip` file.
+        `dir_path`-- The path to the directory containing the original files.
+
+    Raises:
+        ValueError: the backup file is not a `.zip` file.
+
+    Returns:
+        List of tuples, where each tuple contains the name of an original file and the differences found in its contents compared to the backed up version. If there are no changes, an empty string is returned.
+
+    """
+    backup_files: list[dict[str, Any]] = []
 
     if not zip.is_zipfile(backup_path):
-        log.error(f"Expected '{backup_path}' to be a '.zip' file.")
         raise ValueError(f"Expected '{backup_path}' to be a '.zip' file.")
 
-    with zip.ZipFile(backup_path) as zipfile:  # type: ignore
-        data = zipfile.read(
+    with zip.ZipFile(backup_path) as archive:  # type: ignore
+        data = archive.read(
             "meta.info",
         )
         data, _ = utf_8_decode(data)
@@ -155,16 +165,20 @@ def compare_backups(
             # for v in meta_files:
             backup_files.extend(meta_files)
 
-        for file_dir, _, files in os.walk(
-            path.abspath(dir_path),
-        ):
+        original_files: list[str] = []
+        for file_dir, _, files in os.walk(dir_path):
             for file in files:
                 original_files.append((Path(file_dir) / file).as_posix())
 
         for d in backup_files:
             if (file := d["filename"]) in original_files:
                 if not d["hash"] == (file_util.get_file_hash(file)):
-                    contents = zipfile.read(d["archive_name"])
+                    contents = archive.read(d["archive_name"])
+        changed_paths: list[tuple[str, str]] = []
+        for backup_file in backup_files:
+            if (file := backup_file["original_path"]) in original_files:
+                if not backup_file["hash"] == file_util.get_file_hash(file):
+                    contents = archive.read(backup_file["archive_name"])
                     diff = diff_text1(file, contents)
                     changed_paths.append((file, str(diff)))
 
