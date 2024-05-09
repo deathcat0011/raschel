@@ -95,7 +95,33 @@ def test_diff_backup() -> None:
 
     """Check"""
     dmp = diff_match_patch()
-    diff = dmp.patch_fromText(diff[0][1])
-    diff_text, stat = dmp.patch_apply(diff, text)
+
+def test_diff_backup_multiple() -> None:
+    """"""
+
+    """Fixture"""
+    backup_path = backup.run_backup([TEST_DIR_IN], TEST_DIR_OUT)  # type: ignore
+    all_files: list[str] = []
+
+    for file_dir, _, files in os.walk(path.abspath(TEST_DIR_IN)):
+        for selected in files:
+            all_files.append(path.abspath(path.join(file_dir, selected)))
+    files = random.sample(all_files, 5)
+
+    for selected in files:
+        text = generate_text(10)
+        with open(selected, "a") as file:
+            file.write(text)
+
+    """Test"""
+
+    diff = backup.compare_backups(
+        backup_path,  # type: ignore
+        TEST_DIR_IN,  # type: ignore
+    )
+
+    """Check"""
+    dmp = diff_match_patch()
+    diff = dmp.patch_fromText(diff[0][1])  # type: ignore
+    diff_text, stat = dmp.patch_apply(diff, text)  # type: ignore
     assert len(diff_text) == 0 and stat[0]  # type: ignore
-    pass
