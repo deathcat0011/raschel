@@ -71,7 +71,7 @@ def test_full_backup() -> None:
         assert file in original_files
 
 
-def test_diff_backup() -> None:
+def test_diff_backup_one_file() -> None:
     """"""
 
     """Fixture"""
@@ -95,6 +95,10 @@ def test_diff_backup() -> None:
 
     """Check"""
     dmp = diff_match_patch()
+    diff = dmp.patch_fromText(diff[0][1])  # type: ignore
+    diff_text, stat = dmp.patch_apply(diff, text)  # type: ignore
+    assert len(diff_text) == 0 and stat[0]  # type: ignore
+
 
 def test_diff_backup_multiple() -> None:
     """"""
