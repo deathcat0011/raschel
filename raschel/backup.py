@@ -183,3 +183,6 @@ def compare_backups(
                     changed_paths.append((file, str(diff)))
 
     return changed_paths
+
+def do_diff_backup(backup_dir: str, original_dir: str) -> None:
+    pass
