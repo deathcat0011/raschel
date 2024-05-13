@@ -5,7 +5,7 @@ from diff_match_patch import diff_match_patch  # type: ignore
 
 def _do_diff(f1: str, f2: str) -> Iterator[str] | None:
     dmp = diff_match_patch()
-    patches = dmp.patch_make(f1, f2)  # type: ignore
+    patches = dmp.patch_make(f2, f1)  # type: ignore
     return dmp.patch_toText(patches)  # type: ignore
 
 
@@ -17,6 +17,7 @@ def diff_text_file(
             file1_gen = file1.read()  # _read_in_chunks(file1, 4096)
             file2_gen = file2.read()  # _read_in_chunks(file2, 4096)
             return _do_diff(file1_gen, file2_gen)
+            # return _do_diff(file2_gen, file1_gen)
 
 
 def diff_text1(

@@ -8,6 +8,8 @@ import shutil
 import tempfile
 import pytest
 import zipfile
+import itertools
+
 
 from .context import raschel  # type: ignore
 from raschel import backup
@@ -101,7 +103,7 @@ def test_diff_one_file() -> None:
     dmp = diff_match_patch()
     diff = dmp.patch_fromText(diff[0][1])  # type: ignore
     diff_text, stat = dmp.patch_apply(diff, text)  # type: ignore
-    assert len(diff_text) == 0 and stat[0]  # type: ignore
+    assert diff_text == text  # type: ignore
 
 
 def test_diff_multiple() -> None:
@@ -143,8 +145,6 @@ def test_diff_multiple() -> None:
             archive=archive,  # type: ignore
             dir_path=TEST_DIR_IN,  # type: ignore
         )
-
         """Check"""
-
         for file, diff in diffs:
-            assert diff == changes[file]  # type: ignore
+            assert changes[file] == diff
