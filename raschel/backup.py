@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import re as re
 import uuid
-import zipfile as zip
+import zipfile
 from os import PathLike, path
 from typing import Any, Optional
 
@@ -31,7 +31,7 @@ class MetaInfo:
         if not isinstance(files := data.get("files", {}), dict):
             raise ValueError
 
-        ret = cls(files, diff_backup) # type: ignore
+        ret = cls(files, diff_backup)  # type: ignore
         _id = data.get("id", uuid.uuid4())
         ret.id = _id
         return ret
@@ -65,6 +65,8 @@ def run_backup(
     paths_to_backup: list[PathLike[str]], target_dir: PathLike[str]
 ) -> str | None:
     """
+    Raises:
+        ValueError if one of the file paths could not be converted into a zip friendly path
     Returns:
         The name of the archive zip file or `None` if the backup was unsuccesfull
     """
@@ -77,115 +79,168 @@ def run_backup(
     os.makedirs(target_dir, exist_ok=True)
 
     failed = False
-    failed_list: list[tuple[str, str]] = []
+    failed_list: list[str] = []
     timestamp = datetime.datetime.now()
     time = timestamp.isoformat("_", "seconds").replace("-", "_").replace(":", "_")
-    out_path = f"{target_dir}/backup_{time}.zip"
     meta_info = MetaInfo()
-    with zip.ZipFile(
+    out_path = (
+        (Path(target_dir) / f"{str(meta_info.id)}_{time}.zip").absolute().as_posix()
+    )
+
+    with zipfile.ZipFile(
         out_path,
         "a",
-        compression=zip.ZIP_DEFLATED,
+        compression=zipfile.ZIP_DEFLATED,
         compresslevel=9,
-    ) as zipfile:
+    ) as archive:
         # now recursively go through the paths
         for dir in paths_to_backup:
             for file_dir, _, files in os.walk(
                 path.abspath(dir),
             ):
-                if (archive_dir := to_zip_path(file_dir)) is None:
-                    log.error(f"Invalid path '{dir}'")
-                    continue
                 for file in files:
                     log.info(f"{file}")
-
                     filename = (Path(file_dir) / file).as_posix()
-                    arcname = (Path(archive_dir) / file).as_posix()
                     try:
-                        zipfile.write(
-                            filename,
-                            arcname,
-                            compress_type=zip.ZIP_DEFLATED,
+                        file_archive_path = to_zip_path(filename)
+                        if not file_archive_path:
+                            log.error(
+                                f"Could not convert '{filename}' to a zip friendly path"
+                            )
+                            raise ValueError
+                        archive.write(
+                            filename=filename,
+                            arcname=file_archive_path,
+                            compress_type=zipfile.ZIP_DEFLATED,
                             compresslevel=9,
                         )
                         value = {
                             "filename": filename,
-                            "archive_name": arcname,
                             "hash": file_util.get_file_hash(filename),
-                            "timestamp": timestamp.isoformat(),
+                            "timestamp": datetime.datetime.now().isoformat(),
+                            "last_modified": datetime.datetime.fromtimestamp(
+                                path.getmtime(filename)
+                            ).isoformat(),
                         }
                         key = Path(dir).absolute().as_posix()
                         meta_info.files.setdefault(key, []).append(value)  # type: ignore
                     except Exception as e:
                         failed = True
-                        failed_list.append((filename, arcname))
+                        failed_list.append(filename)
                         log.error(e)
         """
             also store that we are making a full backup
         """
-        zipfile.writestr("meta.info", meta_info.to_json())
+        archive.writestr("meta.info", meta_info.to_json())
     if failed:
         log.error("Backup unsuccesful!")
-        for f, t in failed_list:
-            log.error(f"Could not write '{f}' to '{t}'")
+        for f in failed_list:
+            log.error(f"Could not write '{f}' to zip file in'{to_zip_path(f)}'")
+        if path.exists(out_path):
+            os.remove(path=out_path)
+    log.info(f"Backup succesfully written to '{out_path}'")
     return out_path
 
 
-def compare_backups(
-    backup_path: PathLike[str], dir_path: PathLike[str]
+def get_file_diffs(
+    archive: zipfile.ZipFile, dir_path: PathLike[str]
 ) -> list[tuple[str, str]]:
     """
     Compares backups with original files in a directory.
 
     Arguments:
-        `backup_path`-- The path to the backup file, which is expected to be a `.zip` file.
+        `archive`-- zip file containing previous backup
         `dir_path`-- The path to the directory containing the original files.
-
-    Raises:
-        ValueError: the backup file is not a `.zip` file.
-
     Returns:
         List of tuples, where each tuple contains the name of an original file and the differences found in its contents compared to the backed up version. If there are no changes, an empty string is returned.
 
     """
     backup_files: list[dict[str, Any]] = []
 
-    if not zip.is_zipfile(backup_path):
-        raise ValueError(f"Expected '{backup_path}' to be a '.zip' file.")
+    data = archive.read(
+        "meta.info",
+    )
+    data, _ = utf_8_decode(data)
+    meta: MetaInfo = MetaInfo.from_dict(json.loads(data))
+    """
+    Read the backed up files from the meta file in the archive
 
-    with zip.ZipFile(backup_path) as archive:  # type: ignore
-        data = archive.read(
-            "meta.info",
-        )
-        data, _ = utf_8_decode(data)
-        meta: MetaInfo = MetaInfo.from_dict(json.loads(data))
-        """
-        Read the backed up files from the meta file in the archive
+    """
+    for _, meta_files in meta.files.items():
+        # for v in meta_files:
+        backup_files.extend(meta_files)
 
-        """
-        for _, meta_files in meta.files.items():
-            # for v in meta_files:
-            backup_files.extend(meta_files)
+    original_files: list[str] = []
+    for file_dir, _, files in os.walk(dir_path):
+        for file in files:
+            original_files.append((Path(file_dir) / file).as_posix())
 
-        original_files: list[str] = []
-        for file_dir, _, files in os.walk(dir_path):
-            for file in files:
-                original_files.append((Path(file_dir) / file).as_posix())
-
-        for d in backup_files:
-            if (file := d["filename"]) in original_files:
-                if not d["hash"] == (file_util.get_file_hash(file)):
-                    contents = archive.read(d["archive_name"])
-        changed_paths: list[tuple[str, str]] = []
-        for backup_file in backup_files:
-            if (file := backup_file["filename"]) in original_files:
-                if not backup_file["hash"] == file_util.get_file_hash(file):
-                    contents = archive.read(backup_file["archive_name"])
-                    diff = diff_text1(file, contents)
-                    changed_paths.append((file, str(diff)))
+    changed_paths: list[tuple[str, str]] = []
+    for d in backup_files:
+        if (file := d["filename"]) in original_files:
+            if not d["hash"] == (file_util.get_file_hash(file)):
+                file_archive_path = to_zip_path(d["filename"])
+                if not file_archive_path:
+                    log.error(
+                        f"Could not convert '{d['filename']}' to a zip friendly path"
+                    )
+                    raise ValueError
+                contents = archive.read(file_archive_path.as_posix())
+                diff = diff_text1(file, contents)
+                changed_paths.append((file, str(diff)))
 
     return changed_paths
 
 
-def do_diff_backup(backup_dir: str, original_dir: str) -> None:
-    pass
+def do_diff_backup(
+    backup_archive: str, dir_path: PathLike[str], target_dir: PathLike[str]
+) -> str:
+
+    if not zipfile.is_zipfile(backup_archive):
+        raise ValueError(f"Expected '{backup_archive}' to be a '.zip' file.")
+
+    # collect original archive dirs from previous backup
+    with zipfile.ZipFile(backup_archive) as archive:  # type: ignore
+        diffs: list[tuple[str, str]] = get_file_diffs(archive, dir_path)
+
+        data = archive.read(
+            "meta.info",
+        )
+        data, _ = utf_8_decode(data)
+        old_meta: MetaInfo = MetaInfo.from_dict(json.loads(data))
+        timestamp = datetime.datetime.now()
+        time = timestamp.isoformat("_", "seconds").replace("-", "_").replace(":", "_")
+        out_path = (Path(target_dir) / f"{old_meta.id}_{time}.zip").as_posix()
+
+        files: dict[str, list[dict[str, str]]] = {
+            Path(dir_path).as_posix(): [
+                {
+                    "filename": changed_file,
+                    "hash": file_util.get_file_hash(changed_file),
+                    "timestamp": timestamp.isoformat(),
+                    "last_modified": datetime.datetime.fromtimestamp(
+                        path.getmtime(changed_file)
+                    ).isoformat(),
+                }
+                for changed_file, _ in diffs
+            ]
+        }
+
+        new_meta = MetaInfo(files=files, diff_backup=True)
+
+        with zipfile.ZipFile(
+            out_path,
+            "a",
+            compression=zipfile.ZIP_DEFLATED,
+            compresslevel=9,
+        ) as diff_archive:
+            diff_archive.writestr("meta.info", new_meta.to_json())
+            for changed_file, changed_data in diffs:
+                file_archive_path = to_zip_path(changed_file)
+                if not file_archive_path:
+                    log.error(
+                        f"Could not convert '{changed_file}' to a zip friendly path"
+                    )
+                    raise ValueError
+                diff_archive.write(file_archive_path.as_posix(), changed_data)
+    return out_path

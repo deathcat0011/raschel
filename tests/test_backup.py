@@ -1,3 +1,4 @@
+import io
 import json
 from os import path
 import os
@@ -6,7 +7,7 @@ import random
 import shutil
 import tempfile
 import pytest
-import zipfile as zip
+import zipfile
 
 from .context import raschel  # type: ignore
 from raschel import backup
@@ -61,8 +62,8 @@ def test_full_backup() -> None:
 
     out = backup.run_backup([TEST_DIR_IN], TEST_DIR_OUT)  # type: ignore
     backup_files = []
-    with zip.ZipFile(out, "r") as zipfile:  # type: ignore
-        meta = backup.MetaInfo.from_dict(json.load(zipfile.open("meta.info")))
+    with zipfile.ZipFile(out, "r") as archive:  # type: ignore
+        meta = backup.MetaInfo.from_dict(json.load(archive.open("meta.info")))
 
         for dirs in meta.files.values():
             backup_files.extend([dir["filename"] for dir in dirs])  # type: ignore
@@ -71,11 +72,12 @@ def test_full_backup() -> None:
         assert file in original_files
 
 
-def test_diff_backup_one_file() -> None:
+def test_diff_one_file() -> None:
     """"""
 
     """Fixture"""
     backup_path = backup.run_backup([TEST_DIR_IN], TEST_DIR_OUT)  # type: ignore
+    assert backup_path is not None
     all_files: list[str] = []
 
     for file_dir, _, files in os.walk(path.abspath(TEST_DIR_IN)):
@@ -88,10 +90,12 @@ def test_diff_backup_one_file() -> None:
 
     """Test"""
 
-    diff = backup.compare_backups(
-        backup_path,  # type: ignore
-        TEST_DIR_IN,  # type: ignore
-    )
+    with zipfile.ZipFile(file=backup_path) as archive:
+
+        diff = backup.get_file_diffs(
+            archive=archive,  # type: ignore
+            dir_path=TEST_DIR_IN,  # type: ignore
+        )
 
     """Check"""
     dmp = diff_match_patch()
@@ -100,32 +104,47 @@ def test_diff_backup_one_file() -> None:
     assert len(diff_text) == 0 and stat[0]  # type: ignore
 
 
-def test_diff_backup_multiple() -> None:
+def test_diff_multiple() -> None:
     """"""
 
     """Fixture"""
     backup_path = backup.run_backup([TEST_DIR_IN], TEST_DIR_OUT)  # type: ignore
+    assert backup_path is not None
+
     all_files: list[str] = []
 
     for file_dir, _, files in os.walk(path.abspath(TEST_DIR_IN)):
         for selected in files:
             all_files.append(path.abspath(path.join(file_dir, selected)))
-    files = random.sample(all_files, 5)
+    files = random.sample(all_files, 3)
+
+    changes: dict[str, str] = {}
+    dmp = diff_match_patch()
 
     for selected in files:
         text = generate_text(10)
-        with open(selected, "a") as file:
+
+        with open(selected, "a+") as file:
+            file.seek(0)
+            content = file.read()
+            file.seek(io.SEEK_END)
             file.write(text)
+            content_after = content + text
+
+            diff_text = dmp.diff_main(content, content_after)  # type: ignore
+            diff_text = dmp.patch_make(diff_text)  # type: ignore
+            diff_text = dmp.patch_toText(diff_text)  # type: ignore
+            changes[Path(selected).as_posix()] = diff_text
 
     """Test"""
 
-    diff = backup.compare_backups(
-        backup_path,  # type: ignore
-        TEST_DIR_IN,  # type: ignore
-    )
+    with zipfile.ZipFile(backup_path) as archive:
+        diffs = backup.get_file_diffs(
+            archive=archive,  # type: ignore
+            dir_path=TEST_DIR_IN,  # type: ignore
+        )
 
-    """Check"""
-    dmp = diff_match_patch()
-    diff = dmp.patch_fromText(diff[0][1])  # type: ignore
-    diff_text, stat = dmp.patch_apply(diff, text)  # type: ignore
-    assert len(diff_text) == len(text) # type: ignore
+        """Check"""
+
+        for file, diff in diffs:
+            assert diff == changes[file]  # type: ignore
