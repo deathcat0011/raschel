@@ -62,13 +62,13 @@ def test_full_backup() -> None:
 
     """Test"""
 
-    out = backup.run_backup([TEST_DIR_IN], TEST_DIR_OUT)  # type: ignore
+    out = backup.do_backup([TEST_DIR_IN], TEST_DIR_OUT)  # type: ignore
     backup_files = []
     with zipfile.ZipFile(out, "r") as archive:  # type: ignore
         meta = backup.MetaInfo.from_dict(json.load(archive.open("meta.info")))
 
-        for dirs in meta.files.values():
-            backup_files.extend([dir["filename"] for dir in dirs])  # type: ignore
+        for root, dirs in meta.dirs.items():
+            backup_files.extend([(Path(root) / dir["filename"]).as_posix() for dir in dirs])  # type: ignore
     assert len(original_files) == len(backup_files)  # type: ignore
     for file in backup_files:  # type: ignore
         assert file in original_files
@@ -78,7 +78,7 @@ def test_diff_one_file() -> None:
     """"""
 
     """Fixture"""
-    backup_path = backup.run_backup([TEST_DIR_IN], TEST_DIR_OUT)  # type: ignore
+    backup_path = backup.do_backup([TEST_DIR_IN], TEST_DIR_OUT)  # type: ignore
     assert backup_path is not None
     all_files: list[str] = []
 
@@ -94,9 +94,8 @@ def test_diff_one_file() -> None:
 
     with zipfile.ZipFile(file=backup_path) as archive:
 
-        diff = backup.get_file_diffs(
+        diff = backup.get_archive_file_diffs(
             archive=archive,  # type: ignore
-            dir_path=TEST_DIR_IN,  # type: ignore
         )
 
     """Check"""
@@ -110,7 +109,7 @@ def test_diff_multiple() -> None:
     """"""
 
     """Fixture"""
-    backup_path = backup.run_backup([TEST_DIR_IN], TEST_DIR_OUT)  # type: ignore
+    backup_path = backup.do_backup([TEST_DIR_IN], TEST_DIR_OUT)  # type: ignore
     assert backup_path is not None
 
     all_files: list[str] = []
@@ -141,9 +140,8 @@ def test_diff_multiple() -> None:
     """Test"""
 
     with zipfile.ZipFile(backup_path) as archive:
-        diffs = backup.get_file_diffs(
+        diffs = backup.get_archive_file_diffs(
             archive=archive,  # type: ignore
-            dir_path=TEST_DIR_IN,  # type: ignore
         )
         """Check"""
         for file, diff in diffs:

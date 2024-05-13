@@ -4,6 +4,7 @@ import json
 import logging as log
 import os
 from pathlib import Path
+import pathlib
 import re as re
 import uuid
 import zipfile
@@ -21,14 +22,14 @@ class MetaInfo:
         diff_backup: bool = False,
     ):
         self.diff_backup = diff_backup
-        self.files = files or {}
+        self.dirs = files or {}
         self.id = uuid.uuid4()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "MetaInfo":
         if not isinstance(diff_backup := data.get("diff_backup", False), bool):
             raise ValueError
-        if not isinstance(files := data.get("files", {}), dict):
+        if not isinstance(files := data.get("dirs", {}), dict):
             raise ValueError
 
         ret = cls(files, diff_backup)  # type: ignore
@@ -39,7 +40,7 @@ class MetaInfo:
     def to_dict(self) -> dict[str, Any]:
         return {
             "diff_backup": self.diff_backup,
-            "files": self.files,
+            "dirs": self.dirs,
             "id": str(self.id),
         }
 
@@ -61,7 +62,7 @@ def to_zip_path(p: str | Path) -> Optional[Path]:
     return Path(p)
 
 
-def run_backup(
+def do_backup(
     paths_to_backup: list[PathLike[str]], target_dir: PathLike[str]
 ) -> str | None:
     """
@@ -84,7 +85,7 @@ def run_backup(
     time = timestamp.isoformat("_", "seconds").replace("-", "_").replace(":", "_")
     meta_info = MetaInfo()
     out_path = (
-        (Path(target_dir) / f"{str(meta_info.id)}_{time}.zip").absolute().as_posix()
+        (Path(target_dir) / f"{str(meta_info.id)}_{time}.zip").resolve().as_posix()
     )
 
     with zipfile.ZipFile(
@@ -98,11 +99,14 @@ def run_backup(
             for file_dir, _, files in os.walk(
                 path.abspath(dir),
             ):
+                dir = Path(dir).resolve().as_posix()
                 for file in files:
                     log.info(f"{file}")
                     filename = (Path(file_dir) / file).as_posix()
                     try:
-                        file_archive_path = to_zip_path(filename)
+                        root_dir = Path(dir).absolute().as_posix()
+                        root_dir_base = Path(Path(dir).absolute().name)
+                        file_archive_path = Path(filename).relative_to(root_dir)
                         if not file_archive_path:
                             log.error(
                                 f"Could not convert '{filename}' to a zip friendly path"
@@ -110,20 +114,19 @@ def run_backup(
                             raise ValueError
                         archive.write(
                             filename=filename,
-                            arcname=file_archive_path,
+                            arcname=root_dir_base / file_archive_path,
                             compress_type=zipfile.ZIP_DEFLATED,
                             compresslevel=9,
                         )
                         value = {
-                            "filename": filename,
+                            "filename": file_archive_path.as_posix(),
                             "hash": file_util.get_file_hash(filename),
                             "timestamp": datetime.datetime.now().isoformat(),
                             "last_modified": datetime.datetime.fromtimestamp(
                                 path.getmtime(filename)
                             ).isoformat(),
                         }
-                        key = Path(dir).absolute().as_posix()
-                        meta_info.files.setdefault(key, []).append(value)  # type: ignore
+                        meta_info.dirs.setdefault(root_dir, []).append(value)  # type: ignore
                     except Exception as e:
                         failed = True
                         failed_list.append(filename)
@@ -142,19 +145,10 @@ def run_backup(
     return out_path
 
 
-def get_file_diffs(
-    archive: zipfile.ZipFile, dir_path: PathLike[str]
-) -> list[tuple[str, str]]:
-    """
-    Compares backups with original files in a directory.
-
-    Arguments:
-        `archive`-- zip file containing previous backup
-        `dir_path`-- The path to the directory containing the original files.
-    Returns:
-        List of tuples, where each tuple contains the name of an original file and the differences found in its contents compared to the backed up version. If there are no changes, an empty string is returned.
-
-    """
+def get_archive_file_diffs(
+    archive: zipfile.ZipFile,
+):  # TODO! Respect zip folderstructure, this will be changed soon!
+    """Compare files with the ones referenced in backup."""
     backup_files: list[dict[str, Any]] = []
 
     data = archive.read(
@@ -166,23 +160,45 @@ def get_file_diffs(
     Read the backed up files from the meta file in the archive
 
     """
-    for _, meta_files in meta.files.items():
+    changed_paths: list[tuple[str, str]] = []
+    for backup_dir, dirs in meta.dirs.items():
+        archive_root = Path(backup_dir).name
+        for file_obj in dirs:
+            original_file_path = (Path(backup_dir) / file_obj["filename"]).as_posix()
+
+            if not path.exists(original_file_path):
+                log.warning(f"{original_file_path} has been moved or deleted.")
+                continue  # TODO handle file removed
+
+            original_timestamp = path.getmtime(original_file_path)
+            backup_timestamp = datetime.datetime.fromisoformat(
+                file_obj["last_modified"]
+            ).timestamp()
+            if original_timestamp > backup_timestamp:  # original is newer,,
+                log.debug(f"{original_file_path} has changed.")
+                file_archive_path = (
+                    Path(archive_root) / file_obj["filename"]
+                ).as_posix()
+                contents = archive.read(file_archive_path)
+                diff = diff_text1(original_file_path, contents)
+                changed_paths.append((original_file_path, str(diff)))
+
+    original_files: list[str] = []
+    for dir_path, meta_files in meta.dirs.items():
         # for v in meta_files:
         backup_files.extend(meta_files)
 
-    original_files: list[str] = []
-    for file_dir, _, files in os.walk(dir_path):
-        for file in files:
-            original_files.append((Path(file_dir) / file).as_posix())
+        for file_dir, _, files in os.walk(dir_path):
+            for file in files:
+                original_files.append((Path(file_dir) / file).as_posix())
 
-    changed_paths: list[tuple[str, str]] = []
-    for d in backup_files:
-        if (file := d["filename"]) in original_files:
-            if not d["hash"] == (file_util.get_file_hash(file)):
-                file_archive_path = to_zip_path(d["filename"])
+    for backup_file in backup_files:
+        if (file := backup_file["filename"]) in original_files:
+            if not backup_file["hash"] == (file_util.get_file_hash(file)):
+                file_archive_path = to_zip_path(backup_file["filename"])
                 if not file_archive_path:
                     log.error(
-                        f"Could not convert '{d['filename']}' to a zip friendly path"
+                        f"Could not convert '{backup_file['filename']}' to a zip friendly path"
                     )
                     raise ValueError
                 contents = archive.read(file_archive_path.as_posix())
@@ -201,7 +217,8 @@ def do_diff_backup(
 
     # collect original archive dirs from previous backup
     with zipfile.ZipFile(backup_archive) as archive:  # type: ignore
-        diffs: list[tuple[str, str]] = get_file_diffs(archive, dir_path)
+
+        diffs: list[tuple[str, str]] = get_archive_file_diffs(archive)
 
         data = archive.read(
             "meta.info",

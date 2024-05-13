@@ -33,8 +33,20 @@ def main():
         default="./",
         help="Directory where the backup should be stored",
     )
+    # subparsers = parser.add_subparsers()
+    # diff_parser = subparsers.add_parser("diff", help="Subcommand to handle diff backups")
+    # diff_parser = diff_parser.add_argument(
+    #     "-f",
+    #     "--from",
+    #     # aliases=["_from"],
+    #     action="store",
+    #     type=str,
+    #     required=True,
+    #     help="Previous backup to base diff backup on"
+    # )
+
     args = parser.parse_args()
-    backup.run_backup(args.dir, args.target)
+    backup.do_backup(args.dir, args.target)
 
 
 if __name__ == "__main__":
