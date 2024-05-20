@@ -114,15 +114,15 @@ def test_diff_multiple() -> None:
 
     all_files: list[str] = []
 
-    for file_dir, _, files in os.walk(path.abspath(TEST_DIR_IN)):
-        for selected in files:
-            all_files.append(path.abspath(path.join(file_dir, selected)))
-    files = random.sample(all_files, 3)
+    for file_dir, _, files_to_change in os.walk(path.abspath(TEST_DIR_IN)):
+        for selected in files_to_change:
+            all_files.append((Path(file_dir) /  selected).absolute().as_posix())
+    files_to_change = random.sample(all_files, 3)
 
     changes: dict[str, str] = {}
     dmp = diff_match_patch()
 
-    for selected in files:
+    for selected in files_to_change:
         text = generate_text(10)
 
         with open(selected, "a+") as file:
@@ -139,10 +139,16 @@ def test_diff_multiple() -> None:
 
     """Test"""
 
+
     with zipfile.ZipFile(backup_path) as archive:
         diffs = backup.get_archive_file_diffs(
             archive=archive,  # type: ignore
         )
         """Check"""
+
+        #check wether all changed files have been detected
+        assert len(files_to_change) == len(diffs)
+        assert all((a in files_to_change for a,_ in diffs))
         for file, diff in diffs:
+            
             assert changes[file] == diff

@@ -158,7 +158,6 @@ def get_archive_file_diffs(
     meta: MetaInfo = MetaInfo.from_dict(json.loads(data))
     """
     Read the backed up files from the meta file in the archive
-
     """
     changed_paths: list[tuple[str, str]] = []
     for backup_dir, dirs in meta.dirs.items():
@@ -174,13 +173,19 @@ def get_archive_file_diffs(
             backup_timestamp = datetime.datetime.fromisoformat(
                 file_obj["last_modified"]
             ).timestamp()
-            if original_timestamp > backup_timestamp:  # original is newer,,
+
+            if (
+                original_timestamp > backup_timestamp and file_util.get_file_hash(original_file_path) != file_obj["hash"]
+            ):  # original is newer, FIXME! at the moment on windows this is always true in tests, cannot verify, so we also check the hash
                 log.debug(f"{original_file_path} has changed.")
                 file_archive_path = (
                     Path(archive_root) / file_obj["filename"]
                 ).as_posix()
                 contents = archive.read(file_archive_path)
                 diff = diff_text1(original_file_path, contents)
+
+
+
                 changed_paths.append((original_file_path, str(diff)))
 
     original_files: list[str] = []
@@ -211,7 +216,10 @@ def get_archive_file_diffs(
 def do_diff_backup(
     backup_archive: str, dir_path: PathLike[str], target_dir: PathLike[str]
 ) -> str:
+    """
+    Do a differential backup based on a given full backup
 
+    """
     if not zipfile.is_zipfile(backup_archive):
         raise ValueError(f"Expected '{backup_archive}' to be a '.zip' file.")
 
