@@ -1,34 +1,16 @@
 import datetime
 import fnmatch
-import glob
+from glob import glob
 import hashlib
 import os
 from io import TextIOWrapper
 from os import PathLike
 import re
-from typing import Any, Dict, Generator, Iterator, List
-
-
-class FileAttribs:
-
-    def get_last_modified(self) -> float:
-        # TODO implement
-        return 0
+from typing import Any, Generator, Iterator, List
 
 
 def get_last_changed(path: PathLike[str] | str) -> datetime.datetime:
     return datetime.datetime.fromtimestamp(os.path.getmtime(path))
-
-
-def file_has_changed(
-    path: PathLike[str], lib: Dict[PathLike[str], FileAttribs]
-) -> bool:
-    # check based on modified time stamp
-    return (
-        datetime.datetime.fromtimestamp(FileAttribs().get_last_modified())
-        - datetime.datetime.fromtimestamp(os.path.getmtime(path))
-    ).seconds > 0
-
 
 def get_file_hash(filename: str):
     BUFFER_SIZE = 4096
