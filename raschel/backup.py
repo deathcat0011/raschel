@@ -4,7 +4,6 @@ import json
 import logging as log
 import os
 from pathlib import Path
-import pathlib
 import re as re
 import uuid
 import zipfile
@@ -48,6 +47,12 @@ class MetaInfo:
         return json.dumps(self.to_dict(), indent=4)
 
 
+def get_backup_files(meta: MetaInfo) -> Optional[list[PathLike[str]]]:
+    file_list : list[PathLike[str]]= []
+    for dir, file_objs in meta.dirs.items():
+        p = Path(dir).absolute()
+        file_list.extend([(p / f["filename"]).as_posix() for f in file_objs])
+
 def to_zip_path(p: str | Path) -> Optional[Path]:
     """
     We want to keep the path information of a file tied to its location in the original file system, so we have to remove the drive letters. returns None if the path was invalid
@@ -63,7 +68,9 @@ def to_zip_path(p: str | Path) -> Optional[Path]:
 
 
 def do_backup(
-    paths_to_backup: list[PathLike[str]], target_dir: PathLike[str]
+    paths_to_backup: list[PathLike[str]],
+    target_dir: PathLike[str],
+    excluded_paths: Optional[list[PathLike[str]]] = None,
 ) -> str | None:
     """
     Raises:
@@ -96,10 +103,18 @@ def do_backup(
     ) as archive:
         # now recursively go through the paths
         for dir in paths_to_backup:
+            if excluded_paths is not None and dir in excluded_paths:
+                continue
             for file_dir, _, files in os.walk(
                 path.abspath(dir),
             ):
                 dir = Path(dir).resolve().as_posix()
+                # skip excluded paths
+                if excluded_paths is not None and any(
+                    (e and path.commonprefix([Path(file_dir).as_posix(), e]) == dir)
+                    for e in excluded_paths
+                ):
+                    continue
                 for file in files:
                     log.info(f"{file}")
                     filename = (Path(file_dir) / file).as_posix()
@@ -175,7 +190,8 @@ def get_archive_file_diffs(
             ).timestamp()
 
             if (
-                original_timestamp > backup_timestamp and file_util.get_file_hash(original_file_path) != file_obj["hash"]
+                original_timestamp > backup_timestamp
+                and file_util.get_file_hash(original_file_path) != file_obj["hash"]
             ):  # original is newer, FIXME! at the moment on windows this is always true in tests, cannot verify, so we also check the hash
                 log.debug(f"{original_file_path} has changed.")
                 file_archive_path = (
@@ -183,8 +199,6 @@ def get_archive_file_diffs(
                 ).as_posix()
                 contents = archive.read(file_archive_path)
                 diff = diff_text1(original_file_path, contents)
-
-
 
                 changed_paths.append((original_file_path, str(diff)))
 
