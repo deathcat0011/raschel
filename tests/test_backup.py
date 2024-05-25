@@ -116,7 +116,7 @@ def test_diff_multiple() -> None:
 
     for file_dir, _, files_to_change in os.walk(path.abspath(TEST_DIR_IN)):
         for selected in files_to_change:
-            all_files.append((Path(file_dir) /  selected).absolute().as_posix())
+            all_files.append((Path(file_dir) / selected).absolute().as_posix())
     files_to_change = random.sample(all_files, 3)
 
     changes: dict[str, str] = {}
@@ -139,16 +139,45 @@ def test_diff_multiple() -> None:
 
     """Test"""
 
-
     with zipfile.ZipFile(backup_path) as archive:
         diffs = backup.get_archive_file_diffs(
             archive=archive,  # type: ignore
         )
         """Check"""
 
-        #check wether all changed files have been detected
+        # check wether all changed files have been detected
         assert len(files_to_change) == len(diffs)
-        assert all((a in files_to_change for a,_ in diffs))
+        assert all((a in files_to_change for a, _ in diffs))
+        # check wether all changes got detected and are correct
         for file, diff in diffs:
-            
+
             assert changes[file] == diff
+
+
+def test_excluded_file():
+    """"""
+
+    """Fixture"""
+    original_files = []
+    for dir, _, dirs in os.walk(Path(TEST_DIR_IN).as_posix()):
+        if dirs and len(dirs) > 0:
+            original_files.extend([(Path(dir) / file).as_posix() for file in dirs])  # type: ignore
+
+    excluded: str = random.choice(original_files)  # type: ignore
+    out = backup.do_backup([TEST_DIR_IN], TEST_DIR_OUT, excluded_paths=[excluded])  # type: ignore
+
+    """Test"""
+    backup_files = []
+    """Check"""
+
+    # backup should still work
+    with zipfile.ZipFile(out, "r") as archive:  # type: ignore
+        meta = backup.MetaInfo.from_dict(json.load(archive.open("meta.info")))
+
+        for root, dirs in meta.dirs.items():
+            backup_files.extend([(Path(root) / dir["filename"]).as_posix() for dir in dirs])  # type: ignore
+    assert len(original_files) - 1 == len(backup_files)  # type: ignore
+    for file in backup_files:  # type: ignore
+        assert file in original_files
+        # file must not have been the excluded file
+        assert file != excluded
