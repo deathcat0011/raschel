@@ -36,6 +36,13 @@ class MetaInfo:
         ret.id = _id
         return ret
 
+    @classmethod
+    def from_path(cls, path: str) -> "MetaInfo":
+        if not zipfile.is_zipfile(path):
+            raise ValueError
+        with zipfile.ZipFile(path) as archive:
+            return cls.from_dict(json.loads(archive.read("meta.info")))
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "diff_backup": self.diff_backup,
@@ -52,6 +59,7 @@ def get_backup_files(meta: MetaInfo) -> Optional[list[PathLike[str]]]:
     for dir, file_objs in meta.dirs.items():
         p = Path(dir).absolute()
         file_list.extend([(p / f["filename"]).as_posix() for f in file_objs])
+    return file_list
 
 
 def to_zip_path(p: str | Path) -> Optional[Path]:

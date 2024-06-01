@@ -23,7 +23,6 @@ def main():
         nargs="+",
         type=str,
         help="Directories to be included in the backup",
-        required=True,
     )
     parser.add_argument(
         "-t",
@@ -33,20 +32,38 @@ def main():
         default="./",
         help="Directory where the backup should be stored",
     )
-    # subparsers = parser.add_subparsers()
-    # diff_parser = subparsers.add_parser("diff", help="Subcommand to handle diff backups")
-    # diff_parser = diff_parser.add_argument(
-    #     "-f",
-    #     "--from",
-    #     # aliases=["_from"],
-    #     action="store",
-    #     type=str,
-    #     required=True,
-    #     help="Previous backup to base diff backup on"
-    # )
+
+    parser.add_argument(
+        "-e",
+        "--exclude",
+        action="extend",
+        nargs="+",
+        type=str,
+        help="Exclude listed paths from the backup"
+    )
+
+    parser.add_argument(
+        "-l",
+        "--list",
+        action="store",
+        type=str,
+        help="List files inside the backup zip file",
+        metavar="BACKUP_FILE"
+    )
 
     args = parser.parse_args()
-    backup.do_backup(args.dir, args.target)
+
+    if args.list:
+        meta = backup.MetaInfo.from_path(args.list)
+        backup_files = sorted(backup.get_backup_files(meta))
+        for file in backup_files:
+            print(file)
+        return
+
+    if not args.dir:
+        parser.error("the following arguments are required: -d/--dir")
+    
+    backup.do_backup(args.dir, args.target, args.exclude)
 
 
 if __name__ == "__main__":
