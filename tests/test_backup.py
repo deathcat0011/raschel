@@ -181,3 +181,32 @@ def test_excluded_file():
         assert file in original_files
         # file must not have been the excluded file
         assert file != excluded
+
+
+def test_excluded_multiple_files():
+    """"""
+
+    """Fixture"""
+    original_files = []
+    for dir, _, dirs in os.walk(Path(TEST_DIR_IN).as_posix()):
+        if dirs and len(dirs) > 0:
+            original_files.extend([(Path(dir) / file).as_posix() for file in dirs])  # type: ignore
+    n_excluded = min(3, len(original_files))
+    excluded: str = random.sample(original_files, n_excluded)  # type: ignore
+    out = backup.do_backup([TEST_DIR_IN], TEST_DIR_OUT, excluded_paths=excluded)  # type: ignore
+
+    """Test"""
+    backup_files = []
+    """Check"""
+
+    # backup should still work
+    with zipfile.ZipFile(out, "r") as archive:  # type: ignore
+        meta = backup.MetaInfo.from_dict(json.load(archive.open("meta.info")))
+
+        for root, dirs in meta.dirs.items():
+            backup_files.extend([(Path(root) / dir["filename"]).as_posix() for dir in dirs])  # type: ignore
+    assert len(original_files) - n_excluded == len(backup_files)  # type: ignore
+    for file in backup_files:  # type: ignore
+        assert file in original_files
+        # file must not have been the excluded file
+        assert file not in excluded

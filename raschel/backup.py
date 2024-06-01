@@ -48,10 +48,11 @@ class MetaInfo:
 
 
 def get_backup_files(meta: MetaInfo) -> Optional[list[PathLike[str]]]:
-    file_list : list[PathLike[str]]= []
+    file_list: list[PathLike[str]] = []
     for dir, file_objs in meta.dirs.items():
         p = Path(dir).absolute()
         file_list.extend([(p / f["filename"]).as_posix() for f in file_objs])
+
 
 def to_zip_path(p: str | Path) -> Optional[Path]:
     """
@@ -103,49 +104,53 @@ def do_backup(
     ) as archive:
         # now recursively go through the paths
         for dir in paths_to_backup:
-            if excluded_paths is not None and dir in excluded_paths:
+            if excluded_paths is not None and Path(dir).absolute().as_posix() in excluded_paths:  # type: ignore
                 continue
-            for file_dir, _, files in os.walk(
-                path.abspath(dir),
-            ):
-                dir = Path(dir).resolve().as_posix()
-                # skip excluded paths
-                if excluded_paths is not None and any(
-                    (e and path.commonprefix([Path(file_dir).as_posix(), e]) == dir)
-                    for e in excluded_paths
-                ):
-                    continue
-                for file in files:
-                    log.info(f"{file}")
-                    filename = (Path(file_dir) / file).as_posix()
-                    try:
-                        root_dir = Path(dir).absolute().as_posix()
-                        root_dir_base = Path(Path(dir).absolute().name)
-                        file_archive_path = Path(filename).relative_to(root_dir)
-                        if not file_archive_path:
-                            log.error(
-                                f"Could not convert '{filename}' to a zip friendly path"
-                            )
-                            raise ValueError
-                        archive.write(
-                            filename=filename,
-                            arcname=root_dir_base / file_archive_path,
-                            compress_type=zipfile.ZIP_DEFLATED,
-                            compresslevel=9,
+
+            def _not_in_excluded_paths(p):
+                if not excluded_paths:
+                    return True
+                return p.as_posix() not in excluded_paths
+
+            _files = (
+                Path(dir) / file
+                for dir, _, files in os.walk(path.abspath(dir))
+                for file in files
+            )
+            _files = filter(_not_in_excluded_paths, _files)
+
+            for file in _files:
+                dir = file.parent
+                log.info(f"{file}")
+                filename = file.as_posix()
+                try:
+                    root_dir = Path(dir).absolute().as_posix()
+                    root_dir_base = Path(Path(dir).absolute().name)
+                    file_archive_path = Path(filename).relative_to(root_dir)
+                    if not file_archive_path:
+                        log.error(
+                            f"Could not convert '{filename}' to a zip friendly path"
                         )
-                        value = {
-                            "filename": file_archive_path.as_posix(),
-                            "hash": file_util.get_file_hash(filename),
-                            "timestamp": datetime.datetime.now().isoformat(),
-                            "last_modified": datetime.datetime.fromtimestamp(
-                                path.getmtime(filename)
-                            ).isoformat(),
-                        }
-                        meta_info.dirs.setdefault(root_dir, []).append(value)  # type: ignore
-                    except Exception as e:
-                        failed = True
-                        failed_list.append(filename)
-                        log.error(e)
+                        raise ValueError
+                    archive.write(
+                        filename=filename,
+                        arcname=root_dir_base / file_archive_path,
+                        compress_type=zipfile.ZIP_DEFLATED,
+                        compresslevel=9,
+                    )
+                    value = {
+                        "filename": file_archive_path.as_posix(),
+                        "hash": file_util.get_file_hash(filename),
+                        "timestamp": datetime.datetime.now().isoformat(),
+                        "last_modified": datetime.datetime.fromtimestamp(
+                            path.getmtime(filename)
+                        ).isoformat(),
+                    }
+                    meta_info.dirs.setdefault(root_dir, []).append(value)  # type: ignore
+                except Exception as e:
+                    failed = True
+                    failed_list.append(filename)
+                    log.error(e)
         """
             also store that we are making a full backup
         """
